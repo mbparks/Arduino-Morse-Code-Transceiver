@@ -1,6 +1,6 @@
 # Optical Morse Terminal
 
-Version 1.0.0
+Version 1.3.0 (sketch), 1.4.0 (host console)
 License: GPL-3.0
 
 A full duplex capable optical Morse code terminal on a single Arduino. One LED
@@ -42,6 +42,8 @@ stays portable to the Uno R4 and ESP32. On an ESP32 you will need to change
 | A0 | LDR and fixed resistor junction | See the divider below. |
 | D13 | Status LED (built in) | Lights while a received mark is being detected. Optional. |
 | D2 | Calibration button | Other side to GND, `INPUT_PULLUP`, active low. Optional, leave unconnected if unused. |
+| D4 | Straight key | Other side to GND, active low. If the pin already reads closed at boot the key is disabled and reported, which is what an unwired input looks like. |
+| D9 | Sidetone piezo | Other leg to GND. Driven by `tone()`, which uses timer 2 and does not collide with the LED on D3 because that pin is switched, never PWM'd. |
 | 5V | LDR leg 1 | |
 | GND | Fixed resistor leg 2 | |
 
@@ -70,6 +72,15 @@ If `/cal` reports low contrast, the fix is almost always a different `Rfixed`,
 closer spacing, or a shade tube around the sensor.
 
 ---
+
+## What is in the repository
+
+| Path | What it is |
+| --- | --- |
+| `optical_morse_terminal/optical_morse_terminal.ino` | The sketch, current release |
+| `releases/` | Every tagged release kept as its own file |
+| `heliograph.html` | Host console, single file, no build step |
+| `tests/` | Host side simulation harness, see Testing |
 
 ## Install
 
@@ -137,6 +148,16 @@ start with `/` are commands.
 | `/loop` | Run the built in self test |
 | `/clear` | Flush the transmit queue and abort the current message at the next element boundary |
 | `/version` | Print name and semantic version |
+| `/save` | Write settings and calibration to EEPROM |
+| `/load` | Reload the stored block |
+| `/defaults` | Settings back to compiled defaults, not saved |
+| `/fw <wpm\|off>` | Farnsworth overall speed, never above the character speed |
+| `/tone <on\|off>` | Sidetone on the piezo |
+| `/pitch <300..1200>` | Sidetone frequency in Hz |
+| `/key <on\|off>` | Enable or disable the straight key input |
+| `/call <sign>` | Your callsign, up to 8 sendable characters |
+| `/to <sign>` | Destination callsign, default CQ |
+| `/frame <on\|off>` | Send framed, length checked, CRC checked messages |
 
 ### Character set
 
@@ -181,6 +202,86 @@ DBG: EDGE t= kind=<MARK|SPACE> dur= unit=
 
 Stable error codes: `LINEOVF`, `TXFULL`, `TXDROP`, `BADCMD`, `BADARG`, `BUSY`,
 `LOWCONTRAST`, `NOTARMED`, `RXBREAK`, `OUTDROP`, `SAMPLEOVR`.
+
+---
+
+## Framing
+
+Framing is off by default. Turned on with `/frame on`, an outgoing message is
+wrapped:
+
+```
+= <FROM> <TO> <LEN> = <TEXT> = <CRC4> +
+```
+
+A frame is ordinary Morse text, so a station that knows nothing about framing
+still copies something readable rather than gibberish. BT (`=`) opens the frame
+and separates the header, the text and the check value. AR (`+`) closes it.
+Neither can appear inside the text, because framed text rejects them. `LEN` is
+the decimal character count of the text, which catches a truncation that happens
+to leave a plausible check value. `CRC4` is four hex digits of CRC-16/CCITT-FALSE
+over the text.
+
+Receiving is always tolerant. A line that does not parse as a frame is printed
+as plain text and noted with `SYS: unframed_traffic`, so a 1.3 station and a 1.0
+station can still talk, just without any of the guarantees.
+
+When a frame fails its length or CRC check, that is treated as evidence that
+somebody else was transmitting at the same time, and a queued message backs off.
+
+## Backoff
+
+A deferred transmission now waits before resuming. The window starts at one word
+gap and doubles per attempt up to sixteen word gaps, and the actual wait is drawn
+uniformly from inside that window using a seeded xorshift, so two stations that
+started deferring together do not resume together. The counter clears on any
+successfully sent or received message and is visible as `backoff=` in `/status`.
+
+## Farnsworth
+
+`/fw <wpm>` sends the characters themselves at the `/wpm` character speed while
+stretching the gaps between them to hit a slower overall speed. The standard
+derivation: a PARIS word is 50 units, of which 31 are inside characters and 19
+are the gaps between them, so
+
+```
+gap_unit_ms = (60000 * C - 37200 * F) / (19 * C * F)
+```
+
+With the overall speed equal to the character speed this reduces exactly to
+`1200 / C`, so standard timing is the special case and needs no separate code
+path. Farnsworth is opt in and never latches: raising `/wpm` carries the overall
+speed with it unless `/fw` was asked for explicitly.
+
+## Straight key
+
+A key on D4 drives the LED and the sidetone directly and takes priority over the
+transmit queue. Its own marks and spaces are run through the same classification
+functions the receiver uses, so what you send comes back as text on a `KEY:`
+line. The board is a practice oscillator that answers back.
+
+---
+
+## HELIOGRAPH, the host console
+
+`heliograph.html` is a single file with no build step and no server. Open it
+from disk in Chrome or Edge and it talks to the board over Web Serial at 115200.
+
+- Parses the serial output grammar and colours lines by prefix, with per prefix
+  filters
+- Keeps station state in view, populated from `/status` and from every other
+  line that carries key and value pairs
+- Recomputes CRC-16 over every received frame independently, so each frame is
+  checked once by the board and once by the host, by two implementations written
+  from the same specification
+- Command entry with history, a quick command list, log export, and log import
+  for reviewing a session with no board attached
+- Night, Day and High Contrast themes
+- Built in self test covering the parser, the CRC and the frame grammar, which
+  runs with no board and no serial port
+
+Nothing arriving over the wire is ever parsed as markup. Every line reaches the
+DOM through `textContent`.
 
 ---
 
@@ -258,7 +359,7 @@ collide when the channel clears. There is no backoff.
 
 `/loop` runs the built in self test on demand. It needs no physical light path
 and reports one assertion per pass of `loop()`, so the sketch never appears
-hung. 44 assertions across five groups:
+hung. 80 assertions across seven groups:
 
 - encode then decode round trip over the full supported character set
 - timing math at 5, 12, 20 and 30 WPM, including the boundary values, plus a
@@ -266,17 +367,33 @@ hung. 44 assertions across five groups:
 - `millis()` rollover arithmetic either side of the wrap point
 - ring buffer fill, drain, FIFO order, wrap, overrun and clear
 - element classification against synthetic durations at the decision boundaries
+- the settings block: CRC-8 reference vectors, field offsets, and that a
+  flipped field is actually caught
+- framing: CRC-16 reference vectors, frame build and parse round trip, corrupt
+  text, wrong length, malformed headers, and the backoff window math
 
-Expected result is `SYS: selftest_end pass=44 fail=0 result=GREEN`.
+Expected result is `SYS: selftest_end pass=80 fail=0 result=GREEN`.
 
-Version 1.0.0 was additionally verified in a host side simulation that compiles
+Every release has additionally been verified in the host side simulation in
+`tests/`, which compiles the sketch that compiles
 the sketch twice under `g++`, once per namespace, so two virtual boards can be
 pointed at each other through a modeled optical path with sensor lag. That
 harness covers the link itself, speed lock onto a faster sender, half duplex
 gating under heavy self illumination, carrier sense deferral, clean abort, low
 contrast refusal, ambient drift of 300 counts with 120 Hz flicker superimposed,
-and the whole suite again with both clocks parked before their 32 bit wrap. It
-is not required to build or run the sketch.
+persistence across a simulated cold boot, Farnsworth timing, the sidetone, the
+straight key, framing end to end, an independently corrupted frame, and the
+whole suite again with both clocks parked before their 32 bit wrap. It is not
+required to build or run the sketch.
+
+Build and run it with:
+
+```
+cd tests && g++ -std=c++11 -I. -Wall -Wextra -o sim main.cpp && ./sim
+```
+
+Expected result is `HARNESS SUMMARY: GREEN (0 failures)`. Pass `./sim wrap` to
+run the whole suite with both clocks parked just short of their 32 bit rollover.
 
 ---
 
@@ -290,45 +407,79 @@ is not required to build or run the sketch.
 2. **LDR response time caps usable speed.** A CdS cell takes on the order of 10
    to 50 ms to rise and considerably longer to decay. `WPM_MAX` is 30 for the
    arithmetic, but a typical CdS cell will not cleanly resolve a 40 ms dot.
-   Expect 8 to 15 WPM in practice. A phototransistor or photodiode front end
-   would lift this ceiling substantially and is out of scope for 1.0.0.
-3. **No error correction and no retransmission.** A corrupted symbol prints as
-   `?` and is counted. That is the entire recovery strategy.
-4. **No addressing and no framing.** Every station in the optical path hears
-   every transmission. There is no callsign field, no length field, no
-   checksum, and no way to tell two senders apart.
-5. **Collision avoidance is advisory only**, with the limits described above.
+   Expect 8 to 15 WPM in practice.
+3. **Detection, not correction.** A framed message that fails its length or CRC
+   check is rejected and reported, but nothing asks for it again. There is no
+   acknowledgement, no sequence number, and no retransmission, so a lost message
+   stays lost and the sender never finds out.
+4. **Addressing is a label, not a filter.** Every station in the optical path
+   still hears and prints every transmission. The `TO` field says who a frame is
+   for, and nothing enforces it.
+5. **Backoff helps two stations, not a crowd.** The window doubles and the wait
+   is drawn at random inside it, which separates two stations reliably. It does
+   nothing about a station that only one of the two can see, and the carrier
+   sense underneath it still cannot tell a genuinely idle channel from a sender
+   pausing between characters.
 6. **Self interference gating assumes the transmitter is the only local light
-   source that matters.** In `/mode full` the assumption of optical isolation
-   is entirely on the operator to satisfy physically.
+   source that matters.** In `/mode full` the assumption of optical isolation is
+   entirely on the operator to satisfy physically.
 7. **The receive unit estimator tracks one sender.** If two stations at
    different speeds transmit in the same session, the estimate chases whichever
    spoke last, and the first few characters after a handover may decode wrong.
-8. **No persistence.** Calibration is lost at every reset.
-9. **Console backpressure is deliberate.** Paste a long block of commands and
-   the sketch stops reading input until the console has drained. This protects
-   the output stream but can overrun the hardware receive buffer if the host
-   keeps pushing. Send commands a line at a time.
-10. **Not yet bench verified on hardware.** 1.0.0 passes its own self test and
-    the host side simulation. The flash and RAM figures in the sketch header
-    are unfilled placeholders until someone compiles it for a real board.
+8. **Persistence is explicit, not automatic.** Change a setting, forget to
+   `/save`, and the change is gone at the next reset. This is deliberate: an
+   EEPROM cell tolerates roughly 100000 writes, and saving on every `/wpm` would
+   spend that budget on nothing.
+9. **Farnsworth sending is a one way courtesy.** A human copying by ear hears
+   stretched gaps as thinking time, but a machine decoder using adaptive spacing
+   thresholds reads them as word gaps, so a far station running this sketch will
+   copy the right letters with the wrong word breaks. The receiver does not
+   estimate character and word spacing separately.
+10. **The straight key classifies against the configured character speed**, not
+    an adaptive estimate. Key faster or slower than `/wpm` and the `KEY:` line
+    will tell you so, which is the point, but it is not a fist reader.
+11. **Console backpressure is deliberate.** Paste a long block of commands and
+    the sketch stops reading input until the console has drained. This protects
+    the output stream but can overrun the hardware receive buffer if the host
+    keeps pushing. Send commands a line at a time.
+12. **HELIOGRAPH needs Web Serial**, which means Chrome or Edge on the desktop.
+    Log import and the self test work in any browser. Web Serial from a `file://`
+    page depends on the browser treating local files as a secure context, and
+    that behaviour has changed before.
+13. **Not yet bench verified on hardware.** Releases 1.0.0 through 1.3.0 pass
+    their own self tests and the host side simulation, and none of them has met
+    a real photocell. The flash and RAM figures in the sketch header are
+    unfilled placeholders until someone compiles it for a real board.
 
 ---
 
 ## Roadmap
 
-Deliberately not built in 1.0.0:
+Everything on the original roadmap through 1.4.0 is now built. What remains,
+deliberately not built:
 
-- EEPROM persistence of WPM, mode, and calibration thresholds
-- Framing with a callsign, length and CRC, so stations can be told apart and
-  corrupt messages rejected rather than printed with `?` holes
-- Exponential backoff on deferred transmit, which would make the carrier sense
-  worth more than advice
-- Sidetone on a piezo, and a straight key input for hand sending
-- Farnsworth spacing
+- Acknowledgement and retransmission, which is what would turn frame checking
+  from detection into recovery
+- Sequence numbers and duplicate suppression
 - Photodiode plus transimpedance front end, and the higher WPM ceiling and PWM
-  carrier modulation that becomes possible with it
-- A host side terminal script that consumes the output grammar
+  carrier modulation that becomes possible with it. This is the v2.0 line
+  because it invalidates assumptions rather than extending them: a fast sensor
+  makes `WPM_MAX` too conservative, makes the 12 ms transition guard far too
+  generous, and makes full duplex genuinely practical rather than a documented
+  caveat
+- Separate character and word spacing estimation in the receiver, which would
+  let a far station copy Farnsworth sending correctly
+- Hidden node handling, which carrier sense fundamentally cannot do alone
+
+## Changelog
+
+| Version | Change |
+| --- | --- |
+| 1.4.0 | HELIOGRAPH host console. Parses the output grammar, tracks station state, and verifies every frame's CRC independently. |
+| 1.3.0 | Framing with callsign, length and CRC-16. Exponential backoff with a random draw inside a doubling window. Framing is off by default and receiving stays tolerant of unframed traffic. |
+| 1.2.0 | Sidetone, straight key with its own decoder on a `KEY:` line, and Farnsworth spacing. Farnsworth is opt in and never latches. |
+| 1.1.0 | EEPROM persistence, protected by a magic word, a layout byte and a CRC-8. Explicit save, unsaved flag in `/status`. The stored contrast is restored, the stored ambient level is not. |
+| 1.0.0 | First release. |
 
 ---
 

@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<!-- HELIOGRAPH :: heliograph.html :: v1.4.0 -->
+<html lang="en" data-theme="night">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HELIOGRAPH</title>
+<style>
+:root{
+  --bg:#0e1113; --panel:#161b1e; --panel2:#1d2427; --line:#2b3438;
+  --ink:#e6ecef; --dim:#9fb0b7; --accent:#ffb454; --ok:#5fd0a0;
+  --warn:#ffd166; --bad:#ff7b72; --rx:#7ec8ff; --tx:#c3a6ff; --key:#8fe388;
+  --focus:#ffb454; --radius:6px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+html[data-theme="day"]{
+  --bg:#f4f1ea; --panel:#fffdf8; --panel2:#eee9df; --line:#d6cfc2;
+  --ink:#1e1c18; --dim:#5b564d; --accent:#8a4b12; --ok:#1c6b48;
+  --warn:#7a5600; --bad:#a32222; --rx:#14507d; --tx:#5a3a9e; --key:#245c1e;
+}
+html[data-theme="contrast"]{
+  --bg:#000; --panel:#000; --panel2:#000; --line:#fff;
+  --ink:#fff; --dim:#fff; --accent:#ffff00; --ok:#00ff00;
+  --warn:#ffff00; --bad:#ff5555; --rx:#00ffff; --tx:#ff88ff; --key:#00ff00;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;
+  padding:.6rem clamp(.6rem,2vw,1.2rem);border-bottom:1px solid var(--line);background:var(--panel)}
+h1{font-size:1.05rem;margin:0;letter-spacing:.14em;font-weight:600}
+h1 small{font-weight:400;letter-spacing:0;color:var(--dim);font-size:.75rem;margin-left:.5rem}
+.spacer{flex:1}
+button,select,input{font:inherit;color:var(--ink);background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--radius);padding:.5rem .7rem;min-height:44px}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:1px;background:var(--line);
+  min-height:calc(100vh - 62px)}
+@media(max-width:860px){main{grid-template-columns:1fr}}
+section{background:var(--bg);padding:clamp(.6rem,2vw,1rem);min-width:0}
+#log{font-family:var(--mono);font-size:13px;line-height:1.55;white-space:pre-wrap;
+  word-break:break-word;overflow-y:auto;max-height:calc(100vh - 230px);
+  border:1px solid var(--line);border-radius:var(--radius);padding:.6rem;background:var(--panel)}
+.row{display:block}
+.t-TX{color:var(--tx)} .t-RX{color:var(--rx)} .t-SYS{color:var(--ok)}
+.t-ERR{color:var(--bad)} .t-DBG{color:var(--dim)} .t-KEY{color:var(--key)}
+.t-HOST{color:var(--accent)}
+.stamp{color:var(--dim)}
+fieldset{border:1px solid var(--line);border-radius:var(--radius);margin:0 0 .8rem;padding:.6rem}
+legend{padding:0 .4rem;color:var(--dim);font-size:.8rem;letter-spacing:.08em;text-transform:uppercase}
+dl{display:grid;grid-template-columns:auto 1fr;gap:.15rem .6rem;margin:0;font-family:var(--mono);font-size:13px}
+dt{color:var(--dim)} dd{margin:0;text-align:right}
+.bar{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem}
+.bar input[type=text]{flex:1;min-width:12rem;font-family:var(--mono)}
+.filters{display:flex;flex-wrap:wrap;gap:.3rem}
+.filters button{padding:.35rem .6rem;min-height:36px;font-size:.8rem}
+details{border:1px solid var(--line);border-radius:var(--radius);padding:.4rem .6rem;margin-bottom:.6rem}
+summary{cursor:pointer;padding:.3rem 0;min-height:36px;display:flex;align-items:center}
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+th,td{text-align:left;padding:.25rem .4rem;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-weight:400}
+.pill{border:1px solid currentColor;border-radius:999px;padding:0 .4rem;font-size:11px}
+.ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>HELIOGRAPH <small>host console for the Optical Morse Terminal</small></h1>
+  <span class="spacer"></span>
+  <label class="sr" for="theme">Theme</label>
+  <select id="theme" title="Theme">
+    <option value="night">Night</option>
+    <option value="day">Day</option>
+    <option value="contrast">High contrast</option>
+  </select>
+  <button id="connect">Connect</button>
+  <button id="disconnect" disabled>Disconnect</button>
+</header>
+
+<main>
+<section>
+  <div class="filters" id="filters" role="group" aria-label="Line filters"></div>
+  <div id="log" role="log" aria-live="polite" aria-label="Console output" tabindex="0"></div>
+  <div class="bar">
+    <label class="sr" for="entry">Command or message</label>
+    <input type="text" id="entry" placeholder="type a message, or /help" autocomplete="off" spellcheck="false">
+    <button id="send">Send</button>
+    <button id="clear">Clear</button>
+  </div>
+  <div class="bar">
+    <label class="sr" for="quick">Quick command</label>
+    <select id="quick">
+      <option value="">Quick command…</option>
+      <option>/help</option><option>/status</option><option>/version</option>
+      <option>/cal</option><option>/loop</option><option>/clear</option>
+      <option>/save</option><option>/load</option><option>/defaults</option>
+      <option>/raw on</option><option>/raw off</option>
+      <option>/echo on</option><option>/echo off</option>
+      <option>/mode half</option><option>/mode full</option>
+      <option>/frame on</option><option>/frame off</option>
+      <option>/tone on</option><option>/tone off</option>
+    </select>
+    <button id="exportLog">Export log</button>
+    <label for="importLog" class="sr">Import a log file</label>
+    <input type="file" id="importLog" accept=".txt,.log,.json" title="Import a log">
+  </div>
+</section>
+
+<section aria-label="Station state">
+  <fieldset>
+    <legend>Station</legend>
+    <dl id="state"></dl>
+  </fieldset>
+
+  <details open>
+    <summary>Frames</summary>
+    <table>
+      <thead><tr><th scope="col">From</th><th scope="col">Len</th><th scope="col">Check</th><th scope="col">Text</th></tr></thead>
+      <tbody id="frames"></tbody>
+    </table>
+  </details>
+
+  <details>
+    <summary>Self test</summary>
+    <p id="stSummary" class="dim">Runs the host parser against known good and known bad input. No board needed.</p>
+    <button id="runTests">Run self test</button>
+    <div id="stOut" style="font-family:var(--mono);font-size:12.5px;margin-top:.5rem"></div>
+  </details>
+
+  <details>
+    <summary>Options</summary>
+    <p><label><input type="checkbox" id="dbg"> Show DBG lines</label></p>
+    <p><label><input type="checkbox" id="verify" checked> Verify frame CRC independently</label></p>
+    <p><label><input type="checkbox" id="stamps" checked> Timestamps</label></p>
+  </details>
+
+  <details>
+    <summary>About</summary>
+    <p><strong>HELIOGRAPH</strong> version <span id="ver"></span></p>
+    <p>Host console for the Optical Morse Terminal sketch. Reads the sketch's
+       serial output grammar over Web Serial, keeps the station state in view,
+       and checks every received frame's CRC a second time on this side of the
+       link.</p>
+    <p>License: GPL-3.0</p>
+    <p>Vendored libraries: none. No build step, no server, no network access.
+       Everything here is hand written and runs from disk.</p>
+    <p>Feedback: raise an issue on the project repository, or note it in the
+       bring-up log alongside the board.</p>
+  </details>
+</section>
+</main>
+
+<script>
+"use strict";
+const VERSION = "1.4.0";
+document.getElementById("ver").textContent = VERSION;
+
+/* ---------------------------------------------------------------------------
+   Storage. Best effort only: the console is fully usable without it.
+--------------------------------------------------------------------------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("heliograph." + k); return v === null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("heliograph." + k, v); } catch (e) { /* file:// or blocked */ } }
+};
+
+/* ---------------------------------------------------------------------------
+   Grammar. Mirrors the sketch's documented prefixes exactly.
+--------------------------------------------------------------------------- */
+const PREFIXES = ["TX", "RX", "SYS", "ERR", "DBG", "KEY", "HOST"];
+
+function classify(line) {
+  const m = /^(TX|RX|SYS|ERR|DBG|KEY)([:+])\s?(.*)$/.exec(line);
+  if (!m) return { kind: "HOST", cont: false, body: line, raw: line };
+  return { kind: m[1], cont: m[2] === "+", body: m[3], raw: line };
+}
+
+/* Pulls key=value pairs out of a body, leaving free text alone. */
+function pairs(body) {
+  const out = {};
+  const re = /([A-Za-z_][A-Za-z0-9_]*)=([^\s]*)/g;
+  let m;
+  while ((m = re.exec(body)) !== null) out[m[1]] = m[2];
+  return out;
+}
+
+/* CRC-16/CCITT-FALSE, the same one the sketch uses. Recomputing it here means
+   a frame is checked once by the board and once by the host, on different
+   code written from the same specification. */
+function crc16(str) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= (str.charCodeAt(i) & 0xFF) << 8;
+    for (let b = 0; b < 8; b++) {
+      crc = (crc & 0x8000) ? (((crc << 1) ^ 0x1021) & 0xFFFF) : ((crc << 1) & 0xFFFF);
+    }
+  }
+  return crc;
+}
+
+/*  = <FROM> <TO> <LEN> = <TEXT> = <CRC4> +  */
+function parseFrame(line) {
+  const m = /^=\s+(\S+)\s+(\S+)\s+(\d{1,3})\s+=\s+(.*?)\s+=\s+([0-9A-Fa-f]{4})\s+\+\s*$/.exec(line.trim());
+  if (!m) return { ok: false, reason: "not a frame" };
+  const text = m[4];
+  const declared = parseInt(m[3], 10);
+  const seen = parseInt(m[5], 16);
+  if (declared !== text.length) return { ok: false, reason: "length", from: m[1], to: m[2], text: text };
+  if (crc16(text) !== seen) return { ok: false, reason: "crc", from: m[1], to: m[2], text: text };
+  return { ok: true, from: m[1], to: m[2], len: declared, text: text };
+}
+
+/* ---------------------------------------------------------------------------
+   Log
+--------------------------------------------------------------------------- */
+const logEl = document.getElementById("log");
+const framesEl = document.getElementById("frames");
+const stateEl = document.getElementById("state");
+const shown = {};
+PREFIXES.forEach(p => { shown[p] = (p !== "DBG"); });
+const history = [];
+let historyIndex = -1;
+const lines = [];
+
+function stamp() {
+  const d = new Date();
+  return d.toTimeString().slice(0, 8);
+}
+
+function append(kind, text) {
+  lines.push({ t: Date.now(), kind: kind, text: text });
+  if (!shown[kind]) return;
+  const row = document.createElement("span");
+  row.className = "row t-" + kind;
+  if (document.getElementById("stamps").checked) {
+    const s = document.createElement("span");
+    s.className = "stamp";
+    s.textContent = stamp() + "  ";
+    row.appendChild(s);
+  }
+  /* textContent throughout: nothing arriving over the wire is ever parsed as
+     markup, which is the whole of the host side threat model. */
+  row.appendChild(document.createTextNode(text + "\n"));
+  const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+  logEl.appendChild(row);
+  if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function redraw() {
+  logEl.textContent = "";
+  const keep = lines.slice();
+  lines.length = 0;
+  keep.forEach(l => append(l.kind, l.text));
+}
+
+/* ---------------------------------------------------------------------------
+   Station state
+--------------------------------------------------------------------------- */
+const FIELDS = ["wpm", "unit_ms", "fw", "gap_unit_ms", "rxwpm", "mode", "rx",
+                "baseline", "adc", "contrast", "rise", "fall", "queue",
+                "backoff", "frame", "call", "to", "tone", "key", "unsaved",
+                "freeram", "uptime_ms", "sampleovr"];
+const state = {};
+
+function renderState() {
+  stateEl.textContent = "";
+  FIELDS.forEach(f => {
+    if (state[f] === undefined) return;
+    const dt = document.createElement("dt");
+    dt.textContent = f;
+    const dd = document.createElement("dd");
+    dd.textContent = state[f];
+    if (f === "unsaved" && state[f] === "1") dd.className = "warn";
+    if (f === "rx") dd.className = (state[f] === "armed") ? "ok" : "bad";
+    stateEl.appendChild(dt);
+    stateEl.appendChild(dd);
+  });
+  if (!stateEl.childElementCount) {
+    const dt = document.createElement("dt");
+    dt.textContent = "no data";
+    const dd = document.createElement("dd");
+    dd.textContent = "send /status";
+    stateEl.appendChild(dt); stateEl.appendChild(dd);
+  }
+}
+
+function addFrame(from, len, verdict, text, cls) {
+  const tr = document.createElement("tr");
+  [from, String(len), verdict, text].forEach((v, i) => {
+    const td = document.createElement("td");
+    td.textContent = v;
+    if (i === 2) td.className = cls;
+    tr.appendChild(td);
+  });
+  framesEl.insertBefore(tr, framesEl.firstChild);
+  while (framesEl.childElementCount > 50) framesEl.removeChild(framesEl.lastChild);
+}
+
+/* ---------------------------------------------------------------------------
+   Line handling
+--------------------------------------------------------------------------- */
+function handleLine(line) {
+  if (line === "") return;
+  const c = classify(line);
+  append(c.kind, line);
+
+  const kv = pairs(c.body);
+  Object.keys(kv).forEach(k => { if (FIELDS.indexOf(k) >= 0) state[k] = kv[k]; });
+  if (/^wpm=/.test(c.body) || /status/.test(c.body) || /^eeprom=/.test(c.body)) renderState();
+  else if (Object.keys(kv).length) renderState();
+
+  /* Independent verification of anything that looks like a frame on the wire. */
+  if (c.kind === "RX" && document.getElementById("verify").checked && /^=\s/.test(c.body)) {
+    const f = parseFrame(c.body);
+    if (f.ok) {
+      addFrame(f.from, f.len, "ok", f.text, "ok");
+      append("HOST", "host check: CRC ok, " + f.len + " characters from " + f.from);
+    } else if (f.reason === "not a frame") {
+      /* leave it alone, the board already printed it */
+    } else {
+      addFrame(f.from || "?", (f.text || "").length, f.reason, f.text || "", "bad");
+      append("HOST", "host check: frame failed on " + f.reason);
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Web Serial
+--------------------------------------------------------------------------- */
+let port = null, reader = null, writer = null, keepReading = false;
+const connectBtn = document.getElementById("connect");
+const disconnectBtn = document.getElementById("disconnect");
+
+async function connect() {
+  if (!("serial" in navigator)) {
+    append("HOST", "Web Serial is not available in this browser. Chrome or Edge on desktop, please. You can still import a saved log.");
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    keepReading = true;
+    connectBtn.disabled = true;
+    disconnectBtn.disabled = false;
+    append("HOST", "connected at 115200");
+    readLoop();
+  } catch (e) {
+    append("HOST", "connect failed: " + e.message);
+  }
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  reader = port.readable.getReader();
+  try {
+    while (keepReading) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.search(/\r\n|\n|\r/)) >= 0) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + (buffer.substr(idx, 2) === "\r\n" ? 2 : 1));
+        handleLine(line);
+      }
+    }
+  } catch (e) {
+    append("HOST", "read stopped: " + e.message);
+  } finally {
+    try { reader.releaseLock(); } catch (e) { /* already released */ }
+  }
+}
+
+async function disconnect() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch (e) { /* closing */ }
+  try { if (writer) writer.releaseLock(); } catch (e) { /* closing */ }
+  try { if (port) await port.close(); } catch (e) { /* closing */ }
+  port = null; reader = null; writer = null;
+  connectBtn.disabled = false;
+  disconnectBtn.disabled = true;
+  append("HOST", "disconnected");
+}
+
+async function send(text) {
+  if (!text) return;
+  history.push(text);
+  historyIndex = history.length;
+  append("HOST", "> " + text);
+  if (!writer) { append("HOST", "not connected, nothing sent"); return; }
+  try {
+    await writer.write(new TextEncoder().encode(text + "\n"));
+  } catch (e) {
+    append("HOST", "write failed: " + e.message);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Wiring
+--------------------------------------------------------------------------- */
+const entry = document.getElementById("entry");
+document.getElementById("send").addEventListener("click", () => { send(entry.value); entry.value = ""; });
+entry.addEventListener("keydown", e => {
+  if (e.key === "Enter") { send(entry.value); entry.value = ""; }
+  else if (e.key === "ArrowUp" && history.length) {
+    historyIndex = Math.max(0, historyIndex - 1); entry.value = history[historyIndex]; e.preventDefault();
+  } else if (e.key === "ArrowDown" && history.length) {
+    historyIndex = Math.min(history.length, historyIndex + 1);
+    entry.value = history[historyIndex] || ""; e.preventDefault();
+  }
+});
+document.getElementById("quick").addEventListener("change", e => {
+  if (e.target.value) { send(e.target.value); e.target.value = ""; }
+});
+connectBtn.addEventListener("click", connect);
+disconnectBtn.addEventListener("click", disconnect);
+document.getElementById("clear").addEventListener("click", () => {
+  /* The log is archived into the export buffer rather than destroyed. */
+  append("HOST", "view cleared, " + lines.length + " lines still held for export");
+  logEl.textContent = "";
+});
+document.getElementById("stamps").addEventListener("change", redraw);
+document.getElementById("dbg").addEventListener("change", e => { shown.DBG = e.target.checked; redraw(); });
+
+const filtersEl = document.getElementById("filters");
+PREFIXES.forEach(p => {
+  const b = document.createElement("button");
+  b.textContent = p;
+  b.setAttribute("aria-pressed", String(shown[p]));
+  b.addEventListener("click", () => {
+    shown[p] = !shown[p];
+    b.setAttribute("aria-pressed", String(shown[p]));
+    if (p === "DBG") document.getElementById("dbg").checked = shown[p];
+    redraw();
+  });
+  filtersEl.appendChild(b);
+});
+
+document.getElementById("exportLog").addEventListener("click", () => {
+  const body = lines.map(l => new Date(l.t).toISOString() + "\t" + l.text).join("\n");
+  const blob = new Blob([body], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "heliograph-" + new Date().toISOString().replace(/[:.]/g, "-") + ".log";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById("importLog").addEventListener("change", e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => {
+    append("HOST", "replaying " + f.name);
+    String(fr.result).split(/\r?\n/).forEach(raw => {
+      handleLine(raw.replace(/^[^\t]*\t/, ""));
+    });
+  };
+  fr.readAsText(f);
+  e.target.value = "";
+});
+
+const themeSel = document.getElementById("theme");
+themeSel.value = store.get("theme", "night");
+document.documentElement.setAttribute("data-theme", themeSel.value);
+themeSel.addEventListener("change", () => {
+  document.documentElement.setAttribute("data-theme", themeSel.value);
+  store.set("theme", themeSel.value);
+});
+
+/* ---------------------------------------------------------------------------
+   Self test
+--------------------------------------------------------------------------- */
+function selfTest() {
+  const out = document.getElementById("stOut");
+  out.textContent = "";
+  let pass = 0, fail = 0;
+  const t = (name, cond) => {
+    if (cond) pass++; else fail++;
+    const d = document.createElement("div");
+    d.className = cond ? "ok" : "bad";
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d);
+  };
+
+  t("crc16 reference vector", crc16("123456789") === 0x29B1);
+  t("crc16 empty is the init value", crc16("") === 0xFFFF);
+  t("crc16 of HELLO", crc16("HELLO") === 0x49D6);
+
+  t("classify RX line", classify("RX: HELLO").kind === "RX");
+  t("classify RX continuation", classify("RX+ MORE").cont === true);
+  t("classify ERR line", classify("ERR: BADCRC from=W1AW").kind === "ERR");
+  t("classify unknown line as host text", classify("garbage").kind === "HOST");
+  t("body excludes the prefix", classify("SYS: wpm=12").body === "wpm=12");
+
+  const kv = pairs("status wpm=12 unit_ms=100 mode=half");
+  t("key value extraction", kv.wpm === "12" && kv.mode === "half");
+  t("free text is not a pair", pairs("text HELLO WORLD").text === undefined);
+
+  const good = parseFrame("= N1HNP CQ 5 = HELLO = 49D6 +");
+  t("good frame parses", good.ok === true && good.text === "HELLO");
+  t("frame callsigns extracted", good.from === "N1HNP" && good.to === "CQ");
+  const spaced = parseFrame("= N1HNP CQ 11 = HELLO WORLD = 5546 +");
+  t("frame text may contain spaces", spaced.ok === true);
+  t("corrupt text fails the check", parseFrame("= N1HNP CQ 5 = HELLP = 49D6 +").reason === "crc");
+  t("wrong length is caught first", parseFrame("= N1HNP CQ 6 = HELLO = 49D6 +").reason === "length");
+  t("plain text is not a frame", parseFrame("HELLO WORLD").reason === "not a frame");
+  t("missing terminator is not a frame", parseFrame("= N1HNP CQ 5 = HELLO = 49D6").reason === "not a frame");
+
+  const before = lines.length;
+  handleLine("SYS: status wpm=17 mode=full rx=armed");
+  t("state updates from a status line", state.wpm === "17" && state.mode === "full");
+  t("handled line is logged", lines.length === before + 1);
+
+  const summary = document.getElementById("stSummary");
+  summary.textContent = "pass " + pass + ", fail " + fail + ", result " + (fail === 0 ? "GREEN" : "RED");
+  summary.className = fail === 0 ? "ok" : "bad";
+}
+document.getElementById("runTests").addEventListener("click", selfTest);
+
+/* ---------------------------------------------------------------------------
+   Boot
+--------------------------------------------------------------------------- */
+renderState();
+append("HOST", "HELIOGRAPH " + VERSION + " ready. Connect a board, or import a saved log.");
+if (!("serial" in navigator)) {
+  append("HOST", "This browser has no Web Serial. Import and self test still work.");
+}
+</script>
+</body>
+</html>
